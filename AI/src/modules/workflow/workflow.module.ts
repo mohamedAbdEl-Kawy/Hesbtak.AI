@@ -2,12 +2,12 @@ import { Module } from '@nestjs/common';
 
 import { WorkflowController } from './workflow.controller';
 import { WorkflowService } from './workflow.service';
-import { QwenService } from 'src/ai/services/qwen.service';
 import { AiModule } from '../../ai/ai.module';
+import { WorkflowGraphService } from './workflow-graph.service';
 
 @Module({
-  imports:[AiModule],
+  imports: [AiModule],
   controllers: [WorkflowController],
-  providers: [WorkflowService,QwenService],
+  providers: [WorkflowService, WorkflowGraphService],
 })
 export class WorkflowModule {}

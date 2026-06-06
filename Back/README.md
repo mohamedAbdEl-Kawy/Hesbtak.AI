@@ -29,6 +29,7 @@ REDIS_PORT=6379
 REDIS_URL=redis://:redis@localhost:6379
 JWT_SECRET=replace-with-a-long-random-secret
 JWT_EXPIRES_IN=1d
+HF_TOKEN=replace-with-your-hugging-face-token
 ```
 
 ## Setup
@@ -44,6 +45,12 @@ API base URL:
 
 ```text
 http://localhost:3000/api/v1
+```
+
+AI workflow routes are served by this same backend:
+
+```text
+http://localhost:3000/api/v1/ai/workflow
 ```
 
 ## Sample Endpoint Tests

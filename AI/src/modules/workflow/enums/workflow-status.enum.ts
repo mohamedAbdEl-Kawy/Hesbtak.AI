@@ -1,5 +1,6 @@
 export enum WorkflowStatus {
   PENDING = 'PENDING',
+  WAITING_FOR_APPROVAL = 'WAITING_FOR_APPROVAL',
   COMPLETED = 'COMPLETED',
   FAILED = 'FAILED',
 }

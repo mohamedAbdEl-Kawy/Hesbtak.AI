@@ -5,11 +5,13 @@ import { ConfigModule } from '@nestjs/config';
 import { DataBaseModule } from './database/database.module';
 import { LoggerModule } from 'nestjs-pino';
 import * as path from 'path';
+import type { IncomingMessage, ServerResponse } from 'http';
 import { AuthModule } from './modules/auth/auth.module';
 import { TenantModule } from './modules/tenant/tenant.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { AutomationModule } from './modules/automation/automation.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
+import { AiModule } from './modules/ai/ai.module';
 
 @Module({
   imports: [
@@ -20,12 +22,24 @@ import { OrganizationsModule } from './modules/organizations/organizations.modul
       pinoHttp: {
         autoLogging: true,
         timestamp: () => `,"time":"${new Date().toISOString()}"`,
-        customSuccessMessage: function (req, res) {
-          return `✅ [${req.method}] ${req.url} - Status: ${res.statusCode}`;
+        customSuccessMessage: function (
+          req: IncomingMessage,
+          res: ServerResponse,
+          responseTime: number,
+        ) {
+          const method = req.method ?? 'UNKNOWN';
+          const url = req.url ?? 'unknown';
+          return `✅ [${method}] ${url} - Status: ${res.statusCode} - Response Time: ${responseTime}ms`;
         },
 
-        customErrorMessage: function (req, res, err) {
-          return `❌ [${req.method}] ${req.url} - Failed with error: ${err.message}`;
+        customErrorMessage: function (
+          req: IncomingMessage,
+          res: ServerResponse,
+          err: Error,
+        ) {
+          const method = req.method ?? 'UNKNOWN';
+          const url = req.url ?? 'unknown';
+          return `❌ [${method}] ${url} - Failed with error: ${err.message}`;
         },
 
         transport: {
@@ -64,6 +78,7 @@ import { OrganizationsModule } from './modules/organizations/organizations.modul
     OrganizationsModule,
     AccountingModule,
     AutomationModule,
+    AiModule,
   ],
   controllers: [AppController],
   providers: [AppService],

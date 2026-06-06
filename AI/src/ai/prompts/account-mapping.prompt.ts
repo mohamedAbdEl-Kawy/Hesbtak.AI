@@ -11,26 +11,30 @@ Your task is:
 - vendor needed?
 - account names needed?
 
-Return ONLY JSON.
+Return ONLY valid JSON. No markdown, no comments, no backticks.
 
 Schema:
 
 {
-  "customer": {
-    "action": "",
-    "name": ""
+  "customerProposal": {
+    "action": "USE_EXISTING|CREATE",
+    "customerId": "",
+    "customerName": ""
   },
 
-  "vendor": {
-    "action": "",
-    "name": ""
+  "vendorProposal": {
+    "action": "USE_EXISTING|CREATE",
+    "vendorId": "",
+    "vendorName": ""
   },
 
-  "accounts": [
+  "accountMappings": [
     {
+      "lineDescription": "",
+      "accountId": "",
       "accountName": "",
-      "accountType": "",
-      "action": ""
+      "confidence": 0.95,
+      "reason": ""
     }
   ]
 }
@@ -46,4 +50,10 @@ Customer Invoice:
 Actions:
 - USE_EXISTING
 - CREATE
+
+Rules:
+- Use existing accounts, customers, and vendors when a good match exists.
+- Propose CREATE only for customers or vendors, never for accounts.
+- Every account mapping must include confidence from 0 to 1.
+- Every mapping should be explainable in the reason field.
 `;

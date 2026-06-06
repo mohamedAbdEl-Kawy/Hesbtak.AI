@@ -8,34 +8,42 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 
+import {
+  ConfirmAccountMappingDto,
+  ConfirmClassificationDto,
+  ConfirmExtractionDto,
+  ConfirmJournalDto,
+  ConfirmPaymentDto,
+} from './dto/approval.dto';
 import { CreateWorkflowDto } from './dto/workflow.dto';
-import { WorkflowService } from './workflow.service';
-
 import { UploadFileInterceptor } from './interceptors/file-upload.interceptor';
-import { ClassificationService } from '../../ai/services/classification.service';
-
-import { safeJsonParse } from '../../shared/utils/safe-json.util';
-import { pdfToImage } from '../../shared/utils/pdf-to-image.util';
-import { fileToBase64 } from '../../shared/utils/file-to-base64.util';
-
-import { INVOICE_EXTRACTION_PROMPT } from '../../ai/prompts/invoice-extraction.prompt';
-import { QwenService } from '../../ai/services/qwen.service';
+import { WorkflowGraphService } from './workflow-graph.service';
+import { WorkflowService } from './workflow.service';
+import { WorkflowStatus } from './enums/workflow-status.enum';
+import { WorkflowStep } from './enums/workflow-step.enum';
+import {
+  AccountMappingResult,
+  ClassificationResult,
+  ExtractionResult,
+  JournalProposal,
+  PaymentProposal,
+} from './types/workflow.types';
+import {
+  validateAccountMappingResult,
+  validateClassificationResult,
+  validateJournalProposal,
+  validatePaymentProposal,
+} from './utils/workflow-validation.util';
 
 @Controller('workflow')
 export class WorkflowController {
   constructor(
     private readonly workflowService: WorkflowService,
-
-    private readonly qwenService: QwenService,
-
-    private readonly classificationService: ClassificationService,
+    private readonly workflowGraphService: WorkflowGraphService,
   ) {}
 
   @Post()
-  async createWorkflow(
-    @Body()
-    dto: CreateWorkflowDto,
-  ) {
+  async createWorkflow(@Body() dto: CreateWorkflowDto) {
     return this.workflowService.createWorkflow(
       dto.documentSide,
       dto.paymentStatus,
@@ -43,97 +51,210 @@ export class WorkflowController {
   }
 
   @Get(':id')
-  async getWorkflow(
-    @Param('id')
-    id: string,
-  ) {
+  async getWorkflow(@Param('id') id: string) {
     return this.workflowService.getWorkflow(id);
   }
 
   @Post(':id/upload')
   @UseInterceptors(UploadFileInterceptor.single())
   async uploadInvoice(
-    @Param('id')
-    workflowId: string,
-    @UploadedFile()
-    file: Express.Multer.File,
+    @Param('id') workflowId: string,
+    @UploadedFile() file: Express.Multer.File,
   ) {
-    let imagePath = file.path;
+    const workflow = await this.workflowService.getWorkflow(workflowId);
 
-    // PDF → Image
-    if (file.mimetype === 'application/pdf') {
-      imagePath = await pdfToImage(file.path);
-    }
+    this.workflowService.assertCurrentStep(workflow, WorkflowStep.EXTRACTION);
 
-    // Image → Base64
-    const imageBase64 = fileToBase64(imagePath);
-
-    // Qwen Extraction
-    const aiResult = await this.qwenService.extractInvoice(
-      imageBase64,
-      INVOICE_EXTRACTION_PROMPT,
+    const payload = this.workflowService.getPayload(workflow);
+    const extraction = await this.workflowGraphService.runExtraction(
+      payload,
+      file,
     );
 
-    const content = aiResult?.choices?.[0]?.message?.content ?? '{}';
+    await this.workflowService.saveProposal(workflowId, WorkflowStep.EXTRACTION_REVIEW, {
+      extractionProposal: extraction,
+    });
 
-    const extractedInvoice = safeJsonParse(content);
-
-    // Save extraction result
-    await this.workflowService.saveExtractionResult(
-      workflowId,
-      extractedInvoice,
-    );
-
-    return {
-      success: true,
-
-      nextStep: 'WAITING_FOR_USER_CONFIRMATION',
-
-      extractedData: extractedInvoice,
-    };
+    return this.workflowService.waitingResponse('EXTRACTION', extraction);
   }
 
   @Post(':id/confirm-extraction')
   async confirmExtraction(
-    @Param('id')
-    workflowId: string,
+    @Param('id') workflowId: string,
+    @Body() dto: ConfirmExtractionDto,
   ) {
     const workflow = await this.workflowService.getWorkflow(workflowId);
+    const payload = this.workflowService.getPayload(workflow);
+    const approvedExtraction =
+      dto.approvedData ?? (payload.extractionProposal as ExtractionResult);
 
-    const payload = workflow!.payload as Record<string, any> | undefined;
-
-    const extractionResult = payload?.extractionResult;
-
-    const documentSide = payload?.documentSide;
-
-    const paymentStatus = payload?.paymentStatus;
-
-    const classificationResponse = await this.classificationService.classify({
-      invoice: extractionResult,
-
-      documentSide,
-
-      paymentStatus,
-    });
-    //test
-    console.log(JSON.stringify(classificationResponse, null, 2));
-    //test
-    const content =
-      classificationResponse?.choices?.[0]?.message?.content ?? '{}';
-
-    const classification = safeJsonParse(content);
-
-    await this.workflowService.saveClassificationResult(
+    const updatedWorkflow = await this.workflowService.approveAndSave(
       workflowId,
-      classification,
+      WorkflowStep.EXTRACTION_REVIEW,
+      {
+        approvedExtraction,
+      },
+      WorkflowStep.CLASSIFICATION_REVIEW,
     );
 
-    return {
-      success: true,
+    const classification = await this.workflowGraphService.runClassification({
+      ...this.workflowService.getPayload(updatedWorkflow),
+      approvedExtraction,
+    });
 
-      nextStep: 'CONFIRM_CLASSIFICATION',
+    await this.workflowService.saveProposal(
+      workflowId,
+      WorkflowStep.CLASSIFICATION_REVIEW,
+      {
+        classificationProposal: classification,
+      },
+    );
 
-      classification,
-    };
+    return this.workflowService.waitingResponse('CLASSIFICATION', classification);
+  }
+
+  @Post(':id/confirm-classification')
+  async confirmClassification(
+    @Param('id') workflowId: string,
+    @Body() dto: ConfirmClassificationDto,
+  ) {
+    const workflow = await this.workflowService.getWorkflow(workflowId);
+    const payload = this.workflowService.getPayload(workflow);
+    const approvedClassification = validateClassificationResult(
+      dto.approvedData ??
+        (payload.classificationProposal as ClassificationResult),
+    );
+
+    const updatedWorkflow = await this.workflowService.approveAndSave(
+      workflowId,
+      WorkflowStep.CLASSIFICATION_REVIEW,
+      {
+        approvedClassification,
+        mappingContext: dto.context,
+      },
+      WorkflowStep.ACCOUNT_MAPPING_REVIEW,
+    );
+
+    const accountMapping = await this.workflowGraphService.runAccountMapping(
+      {
+        ...this.workflowService.getPayload(updatedWorkflow),
+        approvedClassification,
+        mappingContext: dto.context,
+      },
+      dto.context,
+    );
+
+    await this.workflowService.saveProposal(
+      workflowId,
+      WorkflowStep.ACCOUNT_MAPPING_REVIEW,
+      {
+        accountMappingProposal: accountMapping,
+      },
+    );
+
+    return this.workflowService.waitingResponse(
+      'ACCOUNT_MAPPING',
+      accountMapping,
+    );
+  }
+
+  @Post(':id/confirm-account-mapping')
+  async confirmAccountMapping(
+    @Param('id') workflowId: string,
+    @Body() dto: ConfirmAccountMappingDto,
+  ) {
+    const workflow = await this.workflowService.getWorkflow(workflowId);
+    const payload = this.workflowService.getPayload(workflow);
+    const approvedAccountMapping = validateAccountMappingResult(
+      dto.approvedData ??
+        (payload.accountMappingProposal as AccountMappingResult),
+    );
+
+    const updatedWorkflow = await this.workflowService.approveAndSave(
+      workflowId,
+      WorkflowStep.ACCOUNT_MAPPING_REVIEW,
+      {
+        approvedAccountMapping,
+      },
+      WorkflowStep.JOURNAL_REVIEW,
+    );
+
+    const journal = await this.workflowGraphService.runJournal({
+      ...this.workflowService.getPayload(updatedWorkflow),
+      approvedAccountMapping,
+    });
+
+    await this.workflowService.saveProposal(workflowId, WorkflowStep.JOURNAL_REVIEW, {
+      journalProposal: journal,
+    });
+
+    return this.workflowService.waitingResponse('JOURNAL', journal);
+  }
+
+  @Post(':id/confirm-journal')
+  async confirmJournal(
+    @Param('id') workflowId: string,
+    @Body() dto: ConfirmJournalDto,
+  ) {
+    const workflow = await this.workflowService.getWorkflow(workflowId);
+    const payload = this.workflowService.getPayload(workflow);
+    const approvedJournal = validateJournalProposal(
+      dto.approvedData ?? (payload.journalProposal as JournalProposal),
+    );
+
+    const nextStep = this.workflowService.paymentIsPaid(payload.paymentStatus)
+      ? WorkflowStep.PAYMENT_REVIEW
+      : WorkflowStep.COMPLETED;
+
+    const updatedWorkflow = await this.workflowService.approveAndSave(
+      workflowId,
+      WorkflowStep.JOURNAL_REVIEW,
+      {
+        approvedJournal,
+      },
+      nextStep,
+      this.workflowService.paymentIsPaid(payload.paymentStatus)
+        ? WorkflowStatus.PENDING
+        : WorkflowStatus.COMPLETED,
+    );
+
+    if (!this.workflowService.paymentIsPaid(payload.paymentStatus)) {
+      return this.workflowService.completedResponse(
+        this.workflowService.getPayload(updatedWorkflow),
+      );
+    }
+
+    const payment = await this.workflowGraphService.runPayment({
+      ...this.workflowService.getPayload(updatedWorkflow),
+      approvedJournal,
+    });
+
+    await this.workflowService.saveProposal(workflowId, WorkflowStep.PAYMENT_REVIEW, {
+      paymentProposal: payment,
+    });
+
+    return this.workflowService.waitingResponse('PAYMENT', payment);
+  }
+
+  @Post(':id/confirm-payment')
+  async confirmPayment(
+    @Param('id') workflowId: string,
+    @Body() dto: ConfirmPaymentDto,
+  ) {
+    const workflow = await this.workflowService.getWorkflow(workflowId);
+    const payload = this.workflowService.getPayload(workflow);
+    const approvedPayment = validatePaymentProposal(
+      dto.approvedData ?? (payload.paymentProposal as PaymentProposal),
+    );
+
+    this.workflowService.assertCurrentStep(workflow, WorkflowStep.PAYMENT_REVIEW);
+
+    const updatedWorkflow = await this.workflowService.markCompleted(workflowId, {
+      approvedPayment,
+    });
+
+    return this.workflowService.completedResponse(
+      this.workflowService.getPayload(updatedWorkflow),
+    );
   }
 }

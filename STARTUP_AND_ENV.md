@@ -23,6 +23,7 @@ POSTGRES_DB=hesbtk
 POSTGRES_PORT=5432
 JWT_SECRET=replace-with-a-long-random-secret
 JWT_EXPIRES_IN=1d
+HF_TOKEN=replace-with-your-hugging-face-token
 ```
 
 Currently optional/reserved:
@@ -77,6 +78,23 @@ Open:
 http://localhost:5173
 ```
 
+## AI Workflow
+
+The AI workflow now runs as a module inside the main backend. There is no separate AI server to start.
+
+Local API base:
+
+```text
+http://localhost:3000/api/v1/ai/workflow
+```
+
+Protected AI workflow routes require the same headers as tenant routes:
+
+```text
+Authorization: Bearer <JWT>
+x-tenant-id: <organizationId>
+```
+
 ## Build Checks
 
 Backend:
@@ -97,6 +115,6 @@ npm run build
 
 - Real email provider for OTP and invitation emails. Development forgot-password returns `devCode` so the flow can be tested.
 - Real payment/subscription provider. The public `plans` and `subscriptions` models exist, but billing automation is not integrated.
-- Real OCR extraction pipeline. The frontend OCR page is still a UI stub.
-- Real ML/LLM services. Forecasting and chatbot currently use deterministic baseline logic from tenant ledger data.
+- Real persistence bridge from approved AI workflow proposals into accounting records.
+- Forecasting and chatbot currently use deterministic baseline logic from tenant ledger data.
 - WebSocket push for notifications. Alerts are stored and fetched over HTTP.

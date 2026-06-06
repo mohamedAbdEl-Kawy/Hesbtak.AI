@@ -35,6 +35,7 @@ model Organization {
   invitations   Invitation[]
   subscriptions Subscription[]
   auditLogs     AuditLog[]
+  workflowSessions WorkflowSession[]
 
   @@map("organizations")
 }
@@ -67,6 +68,7 @@ model User {
   invitations       Invitation[]       @relation("InvitationInviter")
   auditLogs         AuditLog[]
   passwordResetOtps PasswordResetOtp[]
+  workflowSessions WorkflowSession[]
 
   @@map("users")
 }
@@ -134,4 +136,21 @@ model AuditLog {
   user         User         @relation(fields: [userId], references: [id])
 
   @@map("audit_logs")
+}
+
+model WorkflowSession {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  createdBy      String   @map("created_by") @db.Uuid
+  currentStep    String   @map("current_step")
+  status         String
+  payload        Json
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [createdBy], references: [id])
+
+  @@index([organizationId, createdBy])
+  @@map("workflow_sessions")
 }
