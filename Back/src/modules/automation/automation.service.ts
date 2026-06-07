@@ -1,10 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { randomUUID } from 'crypto';
 import { DataBaseService } from '../../database/database.service';
 import { AccountingService } from '../accounting/accounting.service';
 import { TenantContext, TenantService } from '../tenant/tenant.service';
-import { ChatDto, RecurringEntryDto } from './dto';
+import { RecurringEntryDto } from './dto';
 
 @Injectable()
 export class AutomationService {
@@ -131,22 +130,6 @@ export class AutomationService {
       };
     });
     return { modelVersion: 'baseline-v1', months: result };
-  }
-
-  async chatbot(ctx: TenantContext, userId: string, dto: ChatDto) {
-    const snapshot = await this.dashboard(ctx);
-    const response = `Cash is ${snapshot.cash.toFixed(2)}, receivables are ${snapshot.accountsReceivable.toFixed(2)}, payables are ${snapshot.accountsPayable.toFixed(2)}, and net income is ${snapshot.netIncome.toFixed(2)}.`;
-    const schema = this.tenant.quote(ctx.schemaName);
-    const sessionId = dto.sessionId ?? randomUUID();
-    await this.db.$executeRawUnsafe(
-      `INSERT INTO ${schema}.ai_conversations (session_id, user_id, question, response)
-       VALUES ($1::uuid, $2::uuid, $3, $4)`,
-      sessionId,
-      userId,
-      dto.question,
-      response,
-    );
-    return { sessionId, response, snapshot };
   }
 
   async listAlerts(ctx: TenantContext) {

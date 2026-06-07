@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: hesbetak-rag-postgres
+    environment:
+      POSTGRES_USER: hesbetak
+      POSTGRES_PASSWORD: hesbetak
+      POSTGRES_DB: hesbetak_rag
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hesbetak -d hesbetak_rag"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: hesbetak-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@hesbetak.ai
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+
+  
+  
+volumes:
+  postgres_data:

@@ -10,128 +10,120 @@ datasource db {
 }
 
 model Plan {
-  id           String   @id @default(uuid()) @db.Uuid
-  name         String
-  price        Decimal  @db.Decimal(10, 2)
-  billingCycle String   @map("billing_cycle")
-  features     Json
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String         @db.VarChar
+  price         Decimal        @db.Decimal(10, 2)
+  billingCycle  String         @map("billing_cycle") @db.VarChar
+  features      Json           @default("{}")
+  isActive      Boolean        @default(true) @map("is_active")
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
   subscriptions Subscription[]
 
   @@map("plans")
 }
 
 model Organization {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String
-  industry  String
-  currency  String
-  schemaName String  @unique @map("schema_name")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  members       OrganizationUser[]
-  invitations   Invitation[]
-  subscriptions Subscription[]
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String             @db.VarChar
+  industry      String             @db.VarChar
+  currency      String             @default("USD") @db.VarChar
+  schemaName    String             @unique @map("schema_name") @db.VarChar
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamp(6)
   auditLogs     AuditLog[]
+  invitations   Invitation[]
+  members       OrganizationUser[]
+  subscriptions Subscription[]
 
   @@map("organizations")
 }
 
 model Subscription {
-  id                 String   @id @default(uuid()) @db.Uuid
-  organizationId     String   @map("organization_id") @db.Uuid
-  planId             String   @map("plan_id") @db.Uuid
-  status             String
-  currentPeriodStart DateTime @map("current_period_start")
-  currentPeriodEnd   DateTime @map("current_period_end")
-  createdAt          DateTime @default(now()) @map("created_at")
-
-  organization Organization @relation(fields: [organizationId], references: [id])
-  plan         Plan         @relation(fields: [planId], references: [id])
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId     String       @map("organization_id") @db.Uuid
+  planId             String       @map("plan_id") @db.Uuid
+  status             String       @db.VarChar
+  currentPeriodStart DateTime     @map("current_period_start") @db.Timestamp(6)
+  currentPeriodEnd   DateTime     @map("current_period_end") @db.Timestamp(6)
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamp(6)
+  organization       Organization @relation(fields: [organizationId], references: [id])
+  plan               Plan         @relation(fields: [planId], references: [id])
 
   @@map("subscriptions")
 }
 
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
-  fullName     String   @map("full_name")
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  globalRole   String   @default("user") @map("global_role")
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  memberships       OrganizationUser[] @relation("UserMemberships")
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fullName           String             @map("full_name") @db.VarChar
+  email              String             @unique @db.VarChar
+  passwordHash       String             @map("password_hash") @db.VarChar
+  globalRole         String             @default("user") @map("global_role") @db.VarChar
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamp(6)
+  auditLogs          AuditLog[]
+  invitations        Invitation[]       @relation("InvitationInviter")
   invitedMemberships OrganizationUser[] @relation("InvitedMemberships")
-  invitations       Invitation[]       @relation("InvitationInviter")
-  auditLogs         AuditLog[]
-  passwordResetOtps PasswordResetOtp[]
+  memberships        OrganizationUser[] @relation("UserMemberships")
+  passwordResetOtps  PasswordResetOtp[]
 
   @@map("users")
 }
 
 model PasswordResetOtp {
-  id        String    @id @default(uuid()) @db.Uuid
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId    String    @map("user_id") @db.Uuid
-  codeHash  String    @map("code_hash")
-  expiresAt DateTime  @map("expires_at")
-  usedAt    DateTime? @map("used_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id])
+  codeHash  String    @map("code_hash") @db.VarChar
+  expiresAt DateTime  @map("expires_at") @db.Timestamp(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamp(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([userId, expiresAt])
   @@map("password_reset_otps")
 }
 
 model OrganizationUser {
-  id             String    @id @default(uuid()) @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
-  userId         String    @map("user_id") @db.Uuid
-  role           String
-  isActive       Boolean   @default(true) @map("is_active")
-  invitedBy      String?   @map("invited_by") @db.Uuid
-  joinedAt       DateTime? @map("joined_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  role           String       @db.VarChar
+  isActive       Boolean      @default(true) @map("is_active")
+  invitedBy      String?      @map("invited_by") @db.Uuid
+  joinedAt       DateTime?    @map("joined_at") @db.Timestamp(6)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamp(6)
+  inviter        User?        @relation("InvitedMemberships", fields: [invitedBy], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  user           User         @relation("UserMemberships", fields: [userId], references: [id])
 
-  organization Organization @relation(fields: [organizationId], references: [id])
-  user         User         @relation("UserMemberships", fields: [userId], references: [id])
-  inviter      User?        @relation("InvitedMemberships", fields: [invitedBy], references: [id])
-
-  @@unique([organizationId, userId])
+  @@unique([organizationId, userId], map: "organization_users_org_user_key")
   @@map("organization_users")
 }
 
 model Invitation {
-  id             String    @id @default(uuid()) @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
-  email          String
-  role           String
-  token          String    @unique
-  invitedBy      String    @map("invited_by") @db.Uuid
-  expiresAt      DateTime  @map("expires_at")
-  acceptedAt     DateTime? @map("accepted_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-
-  organization Organization @relation(fields: [organizationId], references: [id])
-  inviter      User         @relation("InvitationInviter", fields: [invitedBy], references: [id])
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  email          String       @db.VarChar
+  role           String       @db.VarChar
+  token          String       @unique @db.VarChar
+  invitedBy      String       @map("invited_by") @db.Uuid
+  expiresAt      DateTime     @map("expires_at") @db.Timestamp(6)
+  acceptedAt     DateTime?    @map("accepted_at") @db.Timestamp(6)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamp(6)
+  inviter        User         @relation("InvitationInviter", fields: [invitedBy], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@map("invitations")
 }
 
 model AuditLog {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  userId         String   @map("user_id") @db.Uuid
-  action         String
-  entityType     String   @map("entity_type")
-  entityId       String?  @map("entity_id") @db.Uuid
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  action         String       @db.VarChar
+  entityType     String       @map("entity_type") @db.VarChar
+  entityId       String?      @map("entity_id") @db.Uuid
   metadata       Json?
-  createdAt      DateTime @default(now()) @map("created_at")
-
-  organization Organization @relation(fields: [organizationId], references: [id])
-  user         User         @relation(fields: [userId], references: [id])
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamp(6)
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  user           User         @relation(fields: [userId], references: [id])
 
   @@map("audit_logs")
 }

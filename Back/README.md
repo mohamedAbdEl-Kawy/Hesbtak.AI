@@ -37,7 +37,21 @@ JWT_EXPIRES_IN=1d
 npm install
 npx prisma generate
 npx prisma migrate deploy
+npm run seed
 npm run start:dev
+```
+
+### Chatbot Test Seed
+
+`npm run seed` creates or refreshes a deterministic company in the shared
+`public` tables and its tenant schema, then rebuilds the tenant RAG index.
+It only updates its own fixed test records and does not truncate the database.
+
+```text
+Organization: Cairo Consulting Group
+Organization ID: 7004ba5a-3ae2-4007-9d1e-bcb228f7c518
+Email: chatbot.test@hesbetak.local
+Password: ChatbotTest123!
 ```
 
 API base URL:

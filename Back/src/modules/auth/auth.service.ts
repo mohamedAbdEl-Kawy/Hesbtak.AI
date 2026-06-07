@@ -9,6 +9,7 @@ import * as bcrypt from 'bcrypt';
 import { randomBytes, randomUUID } from 'crypto';
 import { DataBaseService } from '../../database/database.service';
 import { TenantService } from '../tenant/tenant.service';
+import { RagIndexService } from '../ai/rag-index.service';
 import {
   AcceptInvitationDto,
   CompleteOnboardingDto,
@@ -33,6 +34,7 @@ export class AuthService {
     private readonly db: DataBaseService,
     private readonly jwt: JwtService,
     private readonly tenant: TenantService,
+    private readonly ragIndex: RagIndexService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -81,6 +83,11 @@ export class AuthService {
       result.organization.schemaName,
       result.organization.industry,
     );
+    await this.ragIndex.reindexTenant({
+      organizationId: result.organization.id,
+      schemaName: result.organization.schemaName,
+      role: 'owner',
+    });
 
     return {
       accessToken: this.sign(result.user),
@@ -139,11 +146,17 @@ export class AuthService {
       'accountant',
     ]);
     const schema = this.tenant.quote(context.schemaName);
-    await this.db.$executeRawUnsafe(
+    const rows = await this.db.$queryRawUnsafe<{ id: string }[]>(
       `INSERT INTO ${schema}.onboarding_responses (question_key, answer)
-       VALUES ($1, $2)`,
+       VALUES ($1, $2)
+       RETURNING id`,
       dto.questionKey,
       dto.answer,
+    );
+    await this.ragIndex.indexSource(
+      context,
+      'onboarding_questionnaire',
+      rows[0].id,
     );
 
     return {
@@ -163,11 +176,17 @@ export class AuthService {
     ]);
     const schema = this.tenant.quote(context.schemaName);
     for (const answer of dto.answers) {
-      await this.db.$executeRawUnsafe(
+      const rows = await this.db.$queryRawUnsafe<{ id: string }[]>(
         `INSERT INTO ${schema}.onboarding_responses (question_key, answer)
-         VALUES ($1, $2)`,
+         VALUES ($1, $2)
+         RETURNING id`,
         answer.questionKey,
         answer.answer,
+      );
+      await this.ragIndex.indexSource(
+        context,
+        'onboarding_questionnaire',
+        rows[0].id,
       );
     }
 

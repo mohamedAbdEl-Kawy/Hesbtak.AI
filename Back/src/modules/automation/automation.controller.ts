@@ -3,7 +3,7 @@ import { CurrentUser, JwtUser } from '../../common/auth/current-user.decorator';
 import { JwtAuthGuard } from '../../common/auth/jwt-auth.guard';
 import { TenantService } from '../tenant/tenant.service';
 import { AutomationService } from './automation.service';
-import { ChatDto, RecurringEntryDto } from './dto';
+import { RecurringEntryDto } from './dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('tenant')
@@ -51,15 +51,6 @@ export class AutomationController {
       await this.tenant.fromOrganizationId(orgId, user.sub),
       months ? Number(months) : 12,
     );
-  }
-
-  @Post('chatbot')
-  async chatbot(
-    @Headers('x-tenant-id') orgId: string,
-    @CurrentUser() user: JwtUser,
-    @Body() dto: ChatDto,
-  ) {
-    return this.automation.chatbot(await this.tenant.fromOrganizationId(orgId, user.sub), user.sub, dto);
   }
 
   @Get('alerts')

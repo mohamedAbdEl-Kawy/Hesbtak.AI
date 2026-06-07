@@ -8,11 +8,13 @@ import { TenantModule } from '../tenant/tenant.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
   imports: [
     DataBaseModule,
     TenantModule,
+    AiModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

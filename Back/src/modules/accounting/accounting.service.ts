@@ -12,6 +12,7 @@ import {
   PaymentDto,
   VendorBillDto,
 } from './dto';
+import { RagIndexService } from '../ai/rag-index.service';
 
 export interface IdRow {
   id: string;
@@ -26,6 +27,7 @@ export class AccountingService {
   constructor(
     private readonly db: DataBaseService,
     private readonly tenant: TenantService,
+    private readonly ragIndex: RagIndexService,
   ) {}
 
   async listAccounts(ctx: TenantContext) {
@@ -47,6 +49,7 @@ export class AccountingService {
       dto.type,
       dto.parentId ?? null,
     );
+    await this.ragIndex.indexSource(ctx, 'account', rows[0].id);
     return rows[0];
   }
 
@@ -96,6 +99,7 @@ export class AccountingService {
         line.description ?? null,
       );
     }
+    await this.ragIndex.indexSource(ctx, 'journal_entry', entries[0].id);
     return entries[0];
   }
 
@@ -199,6 +203,7 @@ export class AccountingService {
     }
 
     await this.createAlert(ctx, 'due_date', 'info', 'Invoice due date scheduled', `Invoice ${number} is due on ${dto.dueDate}`, 'invoice', invoice.id);
+    await this.ragIndex.indexSource(ctx, 'invoice_transaction', invoice.id);
     return { id: invoice.id, invoiceNumber: number, total: invoice.total, status: 'unpaid' };
   }
 
@@ -237,6 +242,8 @@ export class AccountingService {
       userId,
     );
     await this.updateInvoiceStatus(ctx, dto.entityId);
+    await this.ragIndex.indexSource(ctx, 'customer_payment', rows[0].id);
+    await this.ragIndex.indexSource(ctx, 'invoice_transaction', dto.entityId);
     return rows[0];
   }
 
@@ -294,6 +301,7 @@ export class AccountingService {
       bill.id,
     );
     await this.createAlert(ctx, 'due_date', 'info', 'Vendor bill due date scheduled', `Bill ${number} is due on ${dto.dueDate}`, 'vendor_bill', bill.id);
+    await this.ragIndex.indexSource(ctx, 'vendor_bill_transaction', bill.id);
     return { id: bill.id, billNumber: number, total: bill.total, status: 'received' };
   }
 
@@ -332,6 +340,8 @@ export class AccountingService {
       userId,
     );
     await this.updateBillStatus(ctx, dto.entityId);
+    await this.ragIndex.indexSource(ctx, 'vendor_payment', rows[0].id);
+    await this.ragIndex.indexSource(ctx, 'vendor_bill_transaction', dto.entityId);
     return rows[0];
   }
 
@@ -391,6 +401,7 @@ export class AccountingService {
       dto.attachmentUrl ?? null,
       userId,
     );
+    await this.ragIndex.indexSource(ctx, 'expense', rows[0].id);
     return { id: rows[0].id, expenseNumber: number, total, status: 'completed' };
   }
 
@@ -419,6 +430,11 @@ export class AccountingService {
       dto.phone ?? null,
       dto.address ?? null,
       userId,
+    );
+    await this.ragIndex.indexSource(
+      ctx,
+      table === 'customers' ? 'customer' : 'vendor',
+      rows[0].id,
     );
     return rows[0];
   }

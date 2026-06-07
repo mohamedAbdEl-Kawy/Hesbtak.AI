@@ -19,12 +19,3 @@ export class RecurringEntryDto {
   lines!: { accountId: string; debit: number; credit: number; description?: string }[];
 }
 
-export class ChatDto {
-  @IsString()
-  @IsOptional()
-  sessionId?: string;
-
-  @IsString()
-  @IsNotEmpty()
-  question!: string;
-}

@@ -1,0 +1,22 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["hesbetak_shared"]
+}
+
+model Organization {
+  orgId      String   @id @default(dbgenerated("gen_random_uuid()")) @map("org_id") @db.Uuid
+  orgSlug    String   @unique @map("org_slug")
+  schemaName String   @unique @map("schema_name")
+  plan       String   @default("starter")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  isActive   Boolean  @default(true) @map("is_active")
+
+  @@map("organizations")
+  @@schema("hesbetak_shared")
+}

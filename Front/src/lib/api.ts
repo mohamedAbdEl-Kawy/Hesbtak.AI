@@ -97,6 +97,25 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   return data as T;
 }
 
+export async function downloadApi(path: string, fileName: string) {
+  const session = getSession();
+  const headers = new Headers();
+  if (session?.accessToken) {
+    headers.set("Authorization", `Bearer ${session.accessToken}`);
+  }
+  if (session?.activeTenantId) {
+    headers.set("x-tenant-id", session.activeTenantId);
+  }
+  const response = await fetch(`${API_BASE}${path}`, { headers });
+  if (!response.ok) throw new Error("Download failed");
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export const money = (value: number | string | null | undefined) =>
   Number(value ?? 0).toLocaleString(undefined, {
     style: "currency",
