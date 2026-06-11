@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { EmbeddingsModule } from '../embeddings/embeddings.module';
 import { RetrievalModule } from '../retrieval/retrieval.module';
 import { TenantModule } from '../../tenant/tenant.module';
 import { LanggraphService } from './langgraph.service';
@@ -11,7 +10,6 @@ import { FinancialContextService } from '../financial-context.service';
   imports: [
     RetrievalModule,
     TenantModule,
-    EmbeddingsModule,
     PrismaModule,
   ],
   providers: [

@@ -12,6 +12,10 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import {
+  RAG_SOURCE_TYPES,
+  SourceType,
+} from '../../embeddings/dto/ingest-source.dto';
 
 export class RetrieveDto {
   @IsString()
@@ -22,8 +26,8 @@ export class RetrieveDto {
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(10)
-  @IsString({ each: true })
-  sourceTypes?: string[];
+  @IsIn(RAG_SOURCE_TYPES, { each: true })
+  sourceTypes?: SourceType[];
 
   @IsOptional()
   @IsObject()

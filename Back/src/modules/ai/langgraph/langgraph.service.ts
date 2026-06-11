@@ -7,7 +7,6 @@ import { ConfigService } from '@nestjs/config';
 import { StateGraph, START, END } from '@langchain/langgraph';
 import { TenantContext } from '../../tenant/tenant.service';
 import { RetrievalService } from '../retrieval/retrieval.service';
-import { EmbeddingsService } from '../embeddings/embeddings.service';
 import { RunGraphDto } from './dto/run-graph.dto';
 import {
   getGroqClient,
@@ -36,7 +35,6 @@ export class LanggraphService {
     private readonly config: ConfigService,
     private readonly databaseSearchAgentGraph: DatabaseSearchAgentGraph,
     private readonly retrievalService: RetrievalService,
-    private readonly embeddingsService: EmbeddingsService,
     private readonly financialContext: FinancialContextService,
   ) {
     this.groqClient = getGroqClient(this.config);
@@ -72,7 +70,6 @@ export class LanggraphService {
           state,
           this.groqClient,
           this.retrievalService,
-          this.embeddingsService,
           this.financialContext,
         ),
       )

@@ -29,19 +29,17 @@ SQL database.
 --------------------------------------------------
 
 2. "ragSearchAgent"
-Use when the user is asking for contextual, semantic, relationship-based, or document-based information that may require searching financial documents, transaction descriptions, notes, summaries, analyses, invoices, or quarter reports.
+Use only when the user is asking about qualitative information contained in organization documents, reports, onboarding answers, policies, OCR text, or approved insights.
 
 Examples:
-- What transactions affected the marketing expense account?
-- Show Azure-related expenses.
-- Why did cloud spending increase?
-- What was discussed about customer concentration risk?
-- Find invoices related to consulting services.
-- What financial risks were identified in Q1?
-- Explain vendor payment patterns.
+- What did the audit report say about inventory controls?
+- Summarize management's explanation for customer concentration risk.
+- What goals were recorded during onboarding?
+- What assumptions were documented in the forecast commentary?
+- Which policy applies to employee reimbursements?
 
 Source of truth:
-Vector search / RAG documents.
+Trusted organization documents.
 
 --------------------------------------------------
 
@@ -83,8 +81,9 @@ RULES
 
 - Choose exactly one intent.
 - Prefer "databaseSearchAgent" whenever an exact number or factual database lookup is requested.
+- Use "databaseSearchAgent" for transaction descriptions, invoices, payments, accounts, customers, vendors, and date-filtered financial records.
 - Prefer "financialReasoningAgent" when the user is asking for recommendations, analysis, optimization, forecasting, decision support, or report generation.
-- Prefer "ragSearchAgent" when the answer requires searching financial documents, summaries, notes, descriptions, or semantic relationships rather than direct aggregation from the database.
+- Prefer "ragSearchAgent" only when the answer is located in document text or qualitative organization context.
 - Set unresolvedIntent=true only if the request is ambiguous and cannot be confidently classified.
 
 Respond ONLY with valid JSON. No markdown, no code fences, no extra text.

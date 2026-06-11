@@ -1,26 +1,18 @@
 import { IsIn, IsObject, IsString, MaxLength } from 'class-validator';
 
-export const SOURCE_TYPES = [
-  'invoice_transaction',
-  'vendor_bill_transaction',
-  'customer_payment',
-  'vendor_payment',
-  'journal_entry',
-  'anomaly_flag',            // legacy alias kept for backward compat
-  'anomaly_flagged_transactions',
-  'onboarding_questionnaire',
-  'quarter_live_report',
-  'ai_insights',
-  'account',
-  'customer',
-  'vendor',
-  'expense',
+export const RAG_SOURCE_TYPES = [
+  'onboarding_context',
+  'uploaded_document',
+  'ocr_document',
+  'report_commentary',
+  'approved_insight',
+  'policy_or_regulation',
 ] as const;
 
-export type SourceType = (typeof SOURCE_TYPES)[number];
+export type SourceType = (typeof RAG_SOURCE_TYPES)[number];
 
 export class IngestSourceDto {
-  @IsIn(SOURCE_TYPES)
+  @IsIn(RAG_SOURCE_TYPES)
   sourceType!: SourceType;
 
   @IsString()

@@ -1,12 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { toPgVector } from '../database/sql';
+import {
+  RAG_SOURCE_TYPES,
+  SourceType,
+} from '../embeddings/dto/ingest-source.dto';
 import { EmbeddingProviderService } from '../embeddings/embedding-provider';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContext, TenantService } from '../../tenant/tenant.service';
 
-type RetrievalRow = {
+export type RetrievalRow = {
   id: string;
-  source_type: string;
+  source_type: SourceType;
   source_id: string;
   chunk_index: number;
   chunk_text: string;
@@ -14,39 +18,14 @@ type RetrievalRow = {
   similarity_score: number;
 };
 
-export const SOURCE_TYPES = [
-  'invoice_transaction',
-  'vendor_bill_transaction',
-  'customer_payment',
-  'vendor_payment',
-  'journal_entry',
-  'anomaly_flag',
-  'anomaly_flagged_transactions',
-  'onboarding_questionnaire',
-  'quarter_live_report',
-  'ai_insights',
-  'account',
-  'customer',
-  'vendor',
-  'expense',
-];
-
 const ALLOWED_METADATA_FILTERS = new Set([
-  'source_type',
-  'quarter',
-  'fiscal_year',
-  'customer_name',
-  'vendor_name',
-  'invoice_number',
-  'bill_number',
-  'payment_date',
-  'issue_date',
-  'due_date',
-  'status',
-  'currency',
-  'anomaly_score',
-  'analysis_type',
+  'document_type',
   'section',
+  'period_start',
+  'period_end',
+  'effective_date',
+  'author',
+  'approved',
 ]);
 
 @Injectable()
@@ -55,21 +34,25 @@ export class RetrievalService {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantService,
     private readonly embeddingProvider: EmbeddingProviderService,
-  ) { }
-
-  // ─── Generic retrieval ────────────────────────────────────────────────────
+  ) {}
 
   async retrieve(
     ctx: TenantContext,
     query: string,
-    k = 10,
-    similarityThreshold = 0.65,
+    k = 8,
+    similarityThreshold = 0.6,
+    sourceTypes: SourceType[] = [...RAG_SOURCE_TYPES],
+    filters: Record<string, unknown> = {},
   ) {
+    const validSourceTypes = this.validateSourceTypes(sourceTypes);
+    const validFilters = this.validateFilters(filters);
     const rows = await this.retrieveRows(
       ctx.schemaName,
       query,
       k,
       similarityThreshold,
+      validSourceTypes,
+      validFilters,
     );
 
     return {
@@ -78,87 +61,32 @@ export class RetrievalService {
       context: this.buildContext(query, rows),
     };
   }
-
-  // ─── Source-type-filtered retrieval ───────────────────────────────────────
-
-  /**
-   * Retrieves chunks filtered to a specific source_type.
-   * Used by the Financial Reasoning Agent to pull targeted context.
-   */
-  sleep(ms: number) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-  async retrieveBySourceType(
-    ctx: TenantContext,
-    sourceType: string,
-    query: string,
-    k = 8,
-    similarityThreshold = 0.60,
-  ): Promise<{ results: RetrievalRow[]; context: string }> {
-    const schema = this.tenant.quote(ctx.schemaName);
-    console.log("testing ", query, sourceType, k, similarityThreshold)
-    let embedding: number[] | undefined;
-    let lastError: unknown;
-    for (let i = 0; i < 3; i += 1) {
-      try {
-        [embedding] = await this.embeddingProvider.embedMany([query]);
-        break;
-      } catch (err) {
-        lastError = err;
-        if (i < 2) await this.sleep(500 * (i + 1));
-      }
-    }
-    if (!embedding) throw lastError;
-
-    const vector = toPgVector(embedding);
-
-    const rows = await this.prisma.$queryRawUnsafe<RetrievalRow[]>(
-      `
-      SELECT
-        id,
-        source_type,
-        source_id,
-        chunk_index,
-        chunk_text,
-        metadata,
-        1 - (embedding <=> $1::vector) AS similarity_score
-      FROM ${schema}.embeddings
-      WHERE
-        is_deleted = false
-        AND embedding IS NOT NULL
-        AND source_type = $2
-        AND 1 - (embedding <=> $1::vector) >= $3
-      ORDER BY embedding <=> $1::vector
-      LIMIT $4
-      `,
-      vector,
-      sourceType,
-      similarityThreshold,
-      k,
-    );
-
-    return {
-      results: rows,
-      context: this.buildContext(query, rows),
-    };
-  }
-
-  // ─── Private helpers ──────────────────────────────────────────────────────
 
   private async retrieveRows(
     schemaName: string,
     query: string,
     k: number,
     similarityThreshold: number,
-  ): Promise<RetrievalRow[]> {
+    sourceTypes: SourceType[],
+    filters: Record<string, string>,
+  ) {
     const schema = this.tenant.quote(schemaName);
-
     const [embedding] = await this.embeddingProvider.embedMany([query]);
-    const vector = toPgVector(embedding);
+    const values: unknown[] = [
+      toPgVector(embedding),
+      similarityThreshold,
+      k,
+      sourceTypes,
+    ];
+    const filterSql = Object.entries(filters)
+      .map(([key, value]) => {
+        values.push(value);
+        return `AND metadata ->> '${key}' = $${values.length}`;
+      })
+      .join('\n');
 
     return this.prisma.$queryRawUnsafe<RetrievalRow[]>(
-      `
-      SELECT
+      `SELECT
         id,
         source_type,
         source_id,
@@ -166,38 +94,69 @@ export class RetrievalService {
         chunk_text,
         metadata,
         1 - (embedding <=> $1::vector) AS similarity_score
-      FROM ${schema}.embeddings
-      WHERE
-        is_deleted = false
-        AND embedding IS NOT NULL
-        AND 1 - (embedding <=> $1::vector) >= $2
-      ORDER BY embedding <=> $1::vector
-      LIMIT $3
-      `,
-      vector,
-      similarityThreshold,
-      k,
+       FROM ${schema}.embeddings
+       WHERE is_deleted = false
+         AND embedding IS NOT NULL
+         AND 1 - (embedding <=> $1::vector) >= $2
+         AND source_type = ANY($4::text[])
+         ${filterSql}
+       ORDER BY embedding <=> $1::vector
+       LIMIT $3`,
+      ...values,
     );
   }
 
-  private buildContext(query: string, rows: RetrievalRow[]): string {
+  private validateSourceTypes(sourceTypes: SourceType[]) {
+    if (
+      sourceTypes.length === 0 ||
+      sourceTypes.some((type) => !RAG_SOURCE_TYPES.includes(type))
+    ) {
+      throw new BadRequestException('Invalid RAG source type');
+    }
+    return sourceTypes;
+  }
+
+  private validateFilters(filters: Record<string, unknown>) {
+    return Object.entries(filters).reduce<Record<string, string>>(
+      (result, [key, value]) => {
+        if (!ALLOWED_METADATA_FILTERS.has(key)) {
+          throw new BadRequestException(`Unsupported retrieval filter: ${key}`);
+        }
+        if (typeof value === 'string') {
+          result[key] = value;
+          return result;
+        }
+        if (typeof value === 'number' || typeof value === 'boolean') {
+          result[key] = String(value);
+          return result;
+        }
+        {
+          throw new BadRequestException(
+            `Retrieval filter ${key} must be a scalar value`,
+          );
+        }
+      },
+      {},
+    );
+  }
+
+  private buildContext(query: string, rows: RetrievalRow[]) {
     if (rows.length === 0) {
-      return `[RETRIEVED CONTEXT]\n\nNo relevant documents found.\n\n[USER QUESTION]\n\n${query}`;
+      return `[DOCUMENT CONTEXT]\nNo relevant documents found.\n\n[USER QUESTION]\n${query}`;
     }
 
-    return `
-[RETRIEVED CONTEXT]
+    const chunks = rows.map((row, index) => {
+      const title =
+        typeof row.metadata.title === 'string'
+          ? row.metadata.title
+          : row.source_id;
+      const section =
+        typeof row.metadata.section === 'string'
+          ? ` | section: ${row.metadata.section}`
+          : '';
+      return `[SOURCE ${index + 1}] ${title}${section} | type: ${row.source_type} | id: ${row.source_id}\n${row.chunk_text}`;
+    });
 
-${rows
-        .map(
-          (row, i) =>
-            `Chunk ${i + 1} (${row.source_type} | score: ${Number(row.similarity_score).toFixed(3)})\n${row.chunk_text}`,
-        )
-        .join('\n\n')}
-
-[USER QUESTION]
-
-${query}
-`;
+    return `[DOCUMENT CONTEXT]\n${chunks.join('\n\n')}\n\n[USER QUESTION]\n${query}`;
   }
 }

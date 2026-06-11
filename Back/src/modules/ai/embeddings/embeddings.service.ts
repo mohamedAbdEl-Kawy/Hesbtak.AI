@@ -3,7 +3,10 @@ import { toPgVector } from '../database/sql';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContext, TenantService } from '../../tenant/tenant.service';
 import { EmbeddingProviderService } from './embedding-provider';
-import { IngestSourceDto } from './dto/ingest-source.dto';
+import {
+  IngestSourceDto,
+  RAG_SOURCE_TYPES,
+} from './dto/ingest-source.dto';
 import { UpsertEmbeddingsDto } from './dto/upsert-embeddings.dto';
 import { SourceChunkerService } from './source-chunker.service';
 
@@ -25,6 +28,11 @@ export class EmbeddingsService {
   }
 
   async embedAndStore(ctx: TenantContext, dto: UpsertEmbeddingsDto) {
+    if (!RAG_SOURCE_TYPES.includes(dto.sourceType)) {
+      throw new BadRequestException(
+        `Unsupported RAG source type: ${dto.sourceType}`,
+      );
+    }
     await this.ensureStore(ctx);
     const schema = this.tenant.quote(ctx.schemaName);
     const chunks = dto.chunks

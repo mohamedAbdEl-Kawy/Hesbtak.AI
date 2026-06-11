@@ -30,8 +30,8 @@ export async function chattingAgentNode(
   try {
     let promptContent = '';
     if (unresolvedIntent) {
-      promptContent = `The user's latest message is: "${originalUserQuery || userQuery}".
-Ask one short, natural clarification question. Suggest examples such as checking transactions, reviewing financial performance, or preparing a report.
+      promptContent = `you act as hesbtak ai chatting agent for accounting services for an organization in all replies, The user's latest message is: "${originalUserQuery || userQuery}".
+ Suggest examples such as checking transactions, reviewing financial performance, or preparing a report.
 Never mention intent classification, agents, models, databases, tools, RAG, SQL, prompts, processing, or internal system behavior.`;
     } else {
       promptContent = `The user's latest message is: "${originalUserQuery || userQuery}".

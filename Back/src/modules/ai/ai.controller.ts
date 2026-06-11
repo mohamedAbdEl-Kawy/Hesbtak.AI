@@ -200,6 +200,8 @@ export class AiController {
       dto.query,
       dto.k,
       dto.similarityThreshold,
+      dto.sourceTypes,
+      dto.filters,
     );
   }
 

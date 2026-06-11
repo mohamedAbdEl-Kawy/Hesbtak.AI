@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsIn,
   IsInt,
   IsObject,
   IsOptional,
@@ -12,6 +13,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { RAG_SOURCE_TYPES, SourceType } from './ingest-source.dto';
 
 export class EmbeddingChunkDto {
   @IsInt()
@@ -27,9 +29,8 @@ export class EmbeddingChunkDto {
 }
 
 export class UpsertEmbeddingsDto {
-  @IsString()
-  @MaxLength(60)
-  sourceType!: string;
+  @IsIn(RAG_SOURCE_TYPES)
+  sourceType!: SourceType;
 
   @IsString()
   @MaxLength(120)

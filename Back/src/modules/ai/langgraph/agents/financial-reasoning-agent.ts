@@ -1,249 +1,96 @@
-import { StateType } from '../state/graph-state';
-import { LLM_MODELS } from '../config/llm.config';
-import { RetrievalService } from '../../retrieval/retrieval.service';
-import { EmbeddingsService } from '../../embeddings/embeddings.service';
-import { analysisAgentPrompt } from '../langgraph-prompts';
 import Groq from 'groq-sdk';
 import { FinancialContextService } from '../../financial-context.service';
+import { RetrievalService } from '../../retrieval/retrieval.service';
+import { LLM_MODELS } from '../config/llm.config';
+import { analysisAgentPrompt } from '../langgraph-prompts';
 import { reportProfileByTitle } from '../report-profile';
+import { StateType } from '../state/graph-state';
 
-/**
- * Financial Reasoning Agent
- *
- * Performs advanced financial analysis in three phases:
- *
- *  Phase 1 — Context Retrieval (6 targeted RAG calls)
- *    1. Current quarter invoice transactions
- *    2. Previous quarter invoice transactions
- *    3. Historical AI insights & recommendations
- *    4. Onboarding questionnaire (business identity & context)
- *    5. Current quarter live financial report
- *    6. Previous quarter live financial report
- *
- *  Phase 2 — LLM Reasoning
- *    Structured analysis: revenue/expense/cash trends, customer/vendor health,
- *    risks, opportunities, recommendations — all grounded in retrieved context.
- *
- *  Phase 3 — Insight Storage
- *    Stores the reasoning output back into the RAG system as ai_insights,
- *    enabling institutional knowledge to compound over time.
- */
 export async function financialReasoningAgentNode(
   state: StateType,
   groqClient: Groq,
   retrievalService: RetrievalService,
-  embeddingsService: EmbeddingsService,
   financialContextService: FinancialContextService,
 ): Promise<Partial<StateType>> {
   const {
     userQuery,
-    orgSlug,
     tenantContext,
     organizationName,
     financialDatabaseContext,
   } = state;
   const reportProfile = reportProfileByTitle(state.reportType);
 
-  console.log('Financial Reasoning Agent: starting analysis for org:', orgSlug);
-
-  // ── Phase 1: Parallel Context Retrieval ───────────────────────────────────
-
-  const [
-    currentInvoices,
-    prevInvoices,
-    aiInsights,
-    onboarding,
-    currentReport,
-    prevReport,
-  ] = await Promise.allSettled([
-    retrievalService.retrieveBySourceType(
-      tenantContext,
-      'invoice_transaction',
-      reportProfile.retrievalQueries[0],
-      10,
-      0.0,
-    ),
-    retrievalService.retrieveBySourceType(
-      tenantContext,
-      'vendor_bill_transaction',
-      reportProfile.retrievalQueries[0],
-      8,
-      0.0,
-    ),
-    retrievalService.retrieveBySourceType(
-      tenantContext,
-      'ai_insights',
-      reportProfile.retrievalQueries[1],
-      6,
-      0.0,
-    ),
-    retrievalService.retrieveBySourceType(
-      tenantContext,
-      'onboarding_questionnaire',
-      `business context and priorities for ${reportProfile.title}`,
-      4,
-      0.0,
-    ),
-    retrievalService.retrieveBySourceType(
-      tenantContext,
-      'quarter_live_report',
-      `${reportProfile.focus} current period`,
-      6,
-      0.0,
-    ),
-    retrievalService.retrieveBySourceType(
-      tenantContext,
-      'quarter_live_report',
-      `${reportProfile.focus} previous period comparison baseline`,
-      6,
-      0.0,
-    ),
-  ]);
-
-  // Helper to safely extract context from settled promises
-  const safeContext = (
-    result: PromiseSettledResult<{ results: any[]; context: string }>,
-    label: string,
-  ): string => {
-    if (result.status === 'fulfilled') {
-      const count = result.value.results.length;
-      if (count === 0) return `[${label}]\nNo data available.\n`;
-      return `[${label} — ${count} chunk(s)]\n${result.value.context}\n`;
-    }
-    console.warn(`RAG retrieval failed for ${label}:`, (result as PromiseRejectedResult).reason);
-    return `[${label}]\nRetrieval failed.\n`;
-  };
-
   const liveFinancialContext =
     financialDatabaseContext ??
     JSON.stringify(
       await financialContextService.build(tenantContext),
-      (_key, value) => (typeof value === 'bigint' ? Number(value) : value),
+      (_key: string, value: unknown): unknown =>
+        typeof value === 'bigint' ? Number(value) : value,
     );
+
+  let documentContext = '[DOCUMENT CONTEXT]\nNo relevant documents found.';
+  try {
+    const retrieval = await retrievalService.retrieve(
+      tenantContext,
+      `${userQuery}\nRelevant context for ${reportProfile.focus}`,
+      6,
+      0.55,
+    );
+    if (retrieval.results.length > 0) {
+      documentContext = retrieval.context;
+    }
+  } catch (error) {
+    console.warn('Financial reasoning document retrieval failed:', error);
+  }
+
   const aggregatedContext = [
-    `[VERIFIED LIVE DATABASE FINANCIALS]\n${liveFinancialContext}`,
-    safeContext(currentInvoices, 'CURRENT QUARTER INVOICES'),
-    safeContext(prevInvoices, 'PREVIOUS QUARTER INVOICES'),
-    safeContext(aiInsights, 'HISTORICAL AI INSIGHTS'),
-    safeContext(onboarding, 'ORGANIZATION CONTEXT'),
-    safeContext(currentReport, 'CURRENT QUARTER LIVE REPORT'),
-    safeContext(prevReport, 'PREVIOUS QUARTER LIVE REPORT'),
-  ].join('\n---\n\n');
-  console.log(currentInvoices)
-  console.log('Financial Reasoning Agent: context assembled, starting LLM reasoning');
+    `[VERIFIED SQL FINANCIAL DATA]\n${liveFinancialContext}`,
+    documentContext,
+  ].join('\n\n---\n\n');
 
-  // ── Phase 2: LLM Reasoning ────────────────────────────────────────────────
-
-  const REASONING_SYSTEM_PROMPT = `${analysisAgentPrompt(organizationName)}
+  const systemPrompt = `${analysisAgentPrompt(organizationName)}
 
 This analysis will become a "${reportProfile.title}".
 Primary focus: ${reportProfile.focus}.
-Prefer these sections when supported by verified data:
+Prefer these sections when supported by evidence:
 ${reportProfile.sections.map((section) => `- ${section}`).join('\n')}
-Do not force unrelated sections into this report type.
 
-You must produce a structured financial analysis with the following sections:
+GROUNDING CONTRACT:
+- [VERIFIED SQL FINANCIAL DATA] is the only authority for numbers, totals, balances, counts, rankings, and period comparisons.
+- [DOCUMENT CONTEXT] is only for qualitative context such as goals, explanations, assumptions, policies, risks, and prior approved decisions.
+- Cite document claims with their [SOURCE N] marker.
+- Never calculate totals from document chunks.
+- If the SQL context does not support a numerical claim, state that it is unavailable.
+- If documents conflict with SQL data, use SQL for financial facts and disclose the conflict.
+- Recommendations must identify the SQL fact or document source that supports them.
+- Do not invent missing information.`;
 
-## FINDINGS
-Concrete observations about revenue, expenses, cash flow, customer health, and vendor patterns.
-
-## REVENUE TRENDS if needed
-Quarter-over-quarter revenue comparison. Highlight growth drivers or declines.
-
-## EXPENSE TRENDS if needed
-Key expense categories. Flag unusual or growing cost centers.
-
-## CASH FLOW ANALYSIS if needed
-Cash inflows vs outflows. Liquidity position and burn rate if applicable.
-
-## RISKS if needed
-Operational, financial, and strategic risks with supporting evidence.
-
-## OPPORTUNITIES if needed
-Actionable growth or cost-saving opportunities.
-
-## RECOMMENDATIONS
-Concrete, prioritized recommendations grounded in the retrieved data.
-Format as: [PRIORITY: HIGH/MEDIUM/LOW] — Recommendation text.
-
-## SUPPORTING EVIDENCE
-Quote specific data points from the retrieved context that support your analysis.
-
-IMPORTANT: If a section cannot be completed due to insufficient data, say so explicitly.
-The [VERIFIED LIVE DATABASE FINANCIALS] section is authoritative financial
-data. Use its ledger totals, receivables, payables, monthly values, document
-counts, and expense categories. Do not claim financial data is unavailable
-when that section contains values, including zero values.
-Do NOT invent data. All claims must trace to the retrieved context.`;
-
-  let reasoningOutput = '';
-
+  let reasoningOutput: string;
   try {
     const response = await groqClient.chat.completions.create({
-      model: LLM_MODELS.FINANCIAL_REASONING_AGENT, // llama-3.3-70b-versatile
+      model: LLM_MODELS.FINANCIAL_REASONING_AGENT,
       messages: [
-        { role: 'system', content: REASONING_SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         {
           role: 'user',
-          content: `User request: "${userQuery}"\n\nRetrieved Financial Context:\n\n${aggregatedContext}`,
+          content: `User request: "${userQuery}"\n\n${aggregatedContext}`,
         },
       ],
       max_tokens: 3000,
       temperature: 0.2,
     });
-
     reasoningOutput = response.choices[0]?.message?.content?.trim() ?? '';
-    console.log('Financial Reasoning Agent: reasoning complete, output length:', reasoningOutput.length);
   } catch (error) {
-    console.error('Financial Reasoning Agent LLM error:', error);
+    console.error('Financial Reasoning Agent error:', error);
     reasoningOutput =
       'Financial analysis could not be completed due to a processing error. Please try again.';
   }
 
-  // ── Phase 3: Store insights back into RAG ─────────────────────────────────
-
-  if (reasoningOutput && !reasoningOutput.includes('could not be completed')) {
-    try {
-      const insightId = `insight-${orgSlug}-${Date.now()}`;
-      await embeddingsService.ingestSource(tenantContext, {
-        sourceType: 'ai_insights',
-        sourceId: insightId,
-        payload: {
-          content: reasoningOutput,
-          analysis_type: reportProfile.analysisType,
-          generated_at: new Date().toISOString(),
-          org_slug: orgSlug,
-          query: userQuery,
-        },
-      });
-      console.log('Financial Reasoning Agent: insights stored to RAG as', insightId);
-    } catch (storeError) {
-      // Non-fatal: log and continue — storing insights should not block the response
-      console.warn('Financial Reasoning Agent: failed to store insights to RAG:', storeError);
-    }
-  }
-
   return {
-    ragContext: aggregatedContext,
+    ragContext: documentContext,
     reasoningOutput,
     agentOutput: reasoningOutput,
     reportType: reportProfile.title,
     unresolvedIntent: false,
   };
-}
-
-/**
- * Infers the type of financial analysis from the user's query keywords.
- */
-function inferAnalysisType(query: string): string {
-  const q = query.toLowerCase();
-  if (q.includes('cost') || q.includes('optim') || q.includes('reduc')) return 'cost_optimization';
-  if (q.includes('cash') || q.includes('liquidity') || q.includes('burn')) return 'cash_flow_analysis';
-  if (q.includes('risk') || q.includes('exposure') || q.includes('threat')) return 'risk_assessment';
-  if (q.includes('profit') || q.includes('margin') || q.includes('income')) return 'profitability_analysis';
-  if (q.includes('budget') || q.includes('plan')) return 'budget_planning';
-  if (q.includes('forecast')) return 'forecasting_analysis';
-  if (q.includes('report') || q.includes('quarter') || q.includes('summary')) return 'quarterly_review';
-  if (q.includes('executive') || q.includes('overview')) return 'executive_summary';
-  return 'financial_analysis';
 }
