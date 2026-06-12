@@ -1,49 +1,40 @@
-# ── Dependencies ──────────────────────────────
+# Dependency/Build Directories
 node_modules
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+npm-debug.log
+.npm
 
-# ── Build output ──────────────────────────────
-dist
-build
+# TypeScript source files (we only need compiled JS in production)
+src
+*.ts
+!*.d.ts
 
-# ── Prisma generated client (rebuilt in Docker) ──
-prisma/generated
-
-# ── Environment files ─────────────────────────
-.env
-.env.*
-!.env.example
-
-# ── Test ──────────────────────────────────────
-test
-coverage
-**/*.spec.ts
-**/*.e2e-spec.ts
-jest.config.*
-
-# ── Git ───────────────────────────────────────
+# Project Files
 .git
 .gitignore
-.gitattributes
+.dockerignore
+Dockerfile
+fly.toml # Fly.io configuration file
+tsconfig.json
+tslint.json
+.eslintrc*
 
-# ── Editor / OS ───────────────────────────────
+# Environment/Configuration Files
+.env
+.DS_Store
+*.log
+
+# Development/Testing files and directories
+test
+tests
+__tests__
+docs
+coverage
+.nyc_output
+tmp
+*~
+
+# IDE files
 .vscode
 .idea
 *.swp
 *.swo
-.DS_Store
-Thumbs.db
-
-# ── Docker ────────────────────────────────────
-Dockerfile*
-docker-compose*
-.dockerignore
-
-# ── Docs / misc ───────────────────────────────
-README.md
-*.md
-.husky
-.eslintrc*
-.prettierrc*
