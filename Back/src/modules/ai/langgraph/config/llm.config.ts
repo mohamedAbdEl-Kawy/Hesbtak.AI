@@ -4,6 +4,11 @@ import type Groq from 'groq-sdk';
 export type LlmProvider = 'groq' | 'openai' | 'huggingface';
 export type LlmClient = Pick<Groq, 'chat'>;
 
+export type LlmPrivacyBoundary = {
+  sanitizeOutbound<T>(payload: T): Promise<T>;
+  restoreInbound<T>(payload: T): Promise<T>;
+};
+
 const MODEL_ROLES = {
   CHATTING_AGENT: 'hesbetak:chatting',
   ORCHESTRATOR_AGENT: 'hesbetak:orchestrator',
@@ -57,7 +62,10 @@ export function hasLlmConfiguration(config: ConfigService): boolean {
   return Boolean(readConfig(config, PROVIDER_DEFAULTS[provider].apiKeyEnv));
 }
 
-export function getLlmClient(config: ConfigService): LlmClient {
+export function getLlmClient(
+  config: ConfigService,
+  privacy?: LlmPrivacyBoundary,
+): LlmClient {
   const provider = getLlmProvider(config);
   const defaults = PROVIDER_DEFAULTS[provider];
   const apiKey =
@@ -69,24 +77,29 @@ export function getLlmClient(config: ConfigService): LlmClient {
   ).replace(/\/+$/, '');
 
   const create = async (request: Record<string, unknown>) => {
+    const resolvedRequest = {
+      ...request,
+      model: resolveModel(config, provider, String(request.model ?? '')),
+    };
+    const outboundRequest = privacy
+      ? await privacy.sanitizeOutbound(resolvedRequest)
+      : resolvedRequest;
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        ...request,
-        model: resolveModel(config, provider, String(request.model ?? '')),
-      }),
+      body: JSON.stringify(outboundRequest),
     });
     const body = await response.text();
     if (!response.ok) {
       throw new Error(
-        `${provider} chat completion failed (${response.status}): ${body}`,
+        `${provider} chat completion failed with status ${response.status}`,
       );
     }
-    return JSON.parse(body) as unknown;
+    const parsed = JSON.parse(body) as unknown;
+    return privacy ? privacy.restoreInbound(parsed) : parsed;
   };
 
   // All configured providers expose the OpenAI-compatible chat-completions

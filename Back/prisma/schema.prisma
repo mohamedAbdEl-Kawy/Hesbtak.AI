@@ -38,8 +38,30 @@ model Organization {
   invitations   Invitation[]
   subscriptions Subscription[]
   auditLogs     AuditLog[]
+  piiTokenMappings PiiTokenMapping[]
 
   @@map("organizations")
+}
+
+model PiiTokenMapping {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  entityType       String    @map("entity_type") @db.VarChar(40)
+  token            String    @db.VarChar(80)
+  valueCiphertext  String    @map("value_ciphertext")
+  valueFingerprint String    @map("value_fingerprint") @db.VarChar(64)
+  purposeScope     String    @map("purpose_scope") @db.VarChar(60)
+  keyVersion       Int       @default(1) @map("key_version")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  lastUsedAt       DateTime  @default(now()) @map("last_used_at") @db.Timestamptz
+  expiresAt        DateTime? @map("expires_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, token], map: "pii_token_mappings_tenant_token_key")
+  @@unique([organizationId, entityType, purposeScope, valueFingerprint], map: "pii_token_mappings_tenant_value_key")
+  @@index([expiresAt], map: "pii_token_mappings_expiry_idx")
+  @@map("pii_token_mappings")
 }
 
 model Subscription {

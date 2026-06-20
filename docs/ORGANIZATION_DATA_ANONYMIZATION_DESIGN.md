@@ -1,6 +1,28 @@
 # Organization Data Anonymization Design
 
-> Status: design proposal only. This document does not implement or modify application code, configuration, or database schemas.
+> Status: core text-AI privacy boundary implemented on 2026-06-20. Raw document redaction, shared-export anonymization, and irreversible analytics anonymization remain future phases.
+
+## Implementation status
+
+Implemented:
+
+- Encrypted, tenant-scoped `public.pii_token_mappings` vault and supporting indexes.
+- Async tenant privacy context around every LangGraph run.
+- Central sanitization of every outbound LLM request, including prompts containing database-search evidence.
+- Authorized in-process restoration of provider responses before returning them to the user.
+- Tenant dictionary detection for customer/vendor names, emails, phones, addresses, organization names, and bank account numbers.
+- Pattern detection for email addresses, phone numbers, and IBANs.
+- External embedding sanitization whenever embeddings run inside a tenant privacy context.
+- PII-safe AI trace summaries and provider errors.
+
+Not yet implemented:
+
+- Pixel-level redaction of raw invoice images/PDFs sent to a vision provider.
+- Anonymized shared-report export mode.
+- Irreversible analytics/training datasets.
+- Full Arabic/English named-entity recognition for people not present in tenant customer/vendor records.
+
+Operational conversations continue to be stored in their original form inside the tenant schema so authorized users can view history. They are anonymized only before external transmission.
 
 ## 1. Objective
 
@@ -424,4 +446,4 @@ Never attach raw values, sanitized payload bodies, token mappings, or user promp
 
 After the above decisions are approved, the safest first slice would be safe logging plus sanitization of text-only outbound AI requests. It has a clear network boundary, provides immediate privacy value, and can be verified with intercepted requests before changing OCR, exports, or analytics.
 
-No implementation was performed as part of this document.
+The implementation intentionally keeps the token vault outside tenant schemas and outside the SQL-agent table allowlist.

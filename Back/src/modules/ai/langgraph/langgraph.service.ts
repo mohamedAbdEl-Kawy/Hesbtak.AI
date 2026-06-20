@@ -8,6 +8,8 @@ import { END, START, StateGraph } from '@langchain/langgraph';
 import { TenantContext } from '../../tenant/tenant.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
 import { ProductGuideCatalogService } from '../product-guide/product-guide-catalog.service';
+import { AnonymizationService } from '../../privacy/anonymization.service';
+import { PrivacyContextService } from '../../privacy/privacy-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { chattingAgentNode } from './agents/chatting-agent';
 import { DatabaseSearchAgentGraph } from './agents/database-search-agent';
@@ -44,8 +46,10 @@ export class LanggraphService {
     private readonly knowledge: KnowledgeService,
     private readonly productCatalog: ProductGuideCatalogService,
     private readonly prisma: PrismaService,
+    private readonly privacyContext: PrivacyContextService,
+    private readonly anonymizer: AnonymizationService,
   ) {
-    this.llmClient = getLlmClient(this.config);
+    this.llmClient = getLlmClient(this.config, this.anonymizer);
     const workflow = new StateGraph(MultiAgentState)
       .addNode('requestPlanner', (state) =>
         this.runNode('requestPlanner', state, () =>
@@ -110,6 +114,18 @@ export class LanggraphService {
   }
 
   async run(ctx: TenantContext, dto: GraphRunInput) {
+    return this.privacyContext.run(
+      {
+        organizationId: ctx.organizationId,
+        schemaName: ctx.schemaName,
+        userId: dto.userId,
+        purpose: 'ai_chat',
+      },
+      () => this.runWithPrivacyContext(ctx, dto),
+    );
+  }
+
+  private async runWithPrivacyContext(ctx: TenantContext, dto: GraphRunInput) {
     if (!hasLlmConfiguration(this.config)) {
       throw new ServiceUnavailableException(
         'AI assistant provider is not configured. Set its API key in the backend environment.',
@@ -123,7 +139,7 @@ export class LanggraphService {
       {
         organizationId: ctx.organizationId,
         queryLength: dto.userQuery.length,
-        queryPreview: summarizeText(dto.userQuery),
+        querySummary: summarizeText(dto.userQuery),
         hasConversationHistory: Boolean(dto.conversationHistory?.trim()),
       },
     );
@@ -148,9 +164,8 @@ export class LanggraphService {
         organizationName: organization?.name ?? 'your organization',
       };
       aiTrace(initialState, 'graph.context_ready', {
-        organizationName: initialState.organizationName,
         queryWasContextualized: contextualQuery !== dto.userQuery,
-        contextualQueryPreview: summarizeText(contextualQuery),
+        contextualQuerySummary: summarizeText(contextualQuery),
         historyLength: conversationHistory.length,
       });
       const result = await this.compiledGraph.invoke(initialState);
@@ -184,7 +199,7 @@ export class LanggraphService {
       });
       if (error instanceof ServiceUnavailableException) throw error;
       throw new InternalServerErrorException(
-        `LangGraph execution failed: ${String(error)}`,
+        'The AI assistant could not complete this request.',
       );
     }
   }

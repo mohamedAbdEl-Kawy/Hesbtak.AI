@@ -2,6 +2,7 @@ import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InferenceClient } from '@huggingface/inference';
 import { createHash } from 'crypto';
+import { AnonymizationService } from '../../privacy/anonymization.service';
 
 export interface EmbeddingProvider {
   embedMany(texts: string[]): Promise<number[][]>;
@@ -13,7 +14,10 @@ export class EmbeddingProviderService implements EmbeddingProvider {
   private readonly provider: string;
   private readonly hfClient?: InferenceClient;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly anonymizer?: AnonymizationService,
+  ) {
     this.dimensions = Math.min(
       Math.max(
         Number(this.config.get<string>('AI_EMBEDDING_DIMENSIONS')) || 2000,
@@ -30,11 +34,14 @@ export class EmbeddingProviderService implements EmbeddingProvider {
   }
 
   async embedMany(texts: string[]): Promise<number[][]> {
+    const outboundTexts = this.anonymizer
+      ? await this.anonymizer.sanitizeOutbound(texts)
+      : texts;
     if (this.provider === 'mock') {
-      return texts.map((text) => this.deterministicVector(text));
+      return outboundTexts.map((text) => this.deterministicVector(text));
     }
     if (this.provider === 'tei') {
-      return this.embedWithTei(texts);
+      return this.embedWithTei(outboundTexts);
     }
     if (!this.hfClient) {
       throw new ServiceUnavailableException(
@@ -44,8 +51,8 @@ export class EmbeddingProviderService implements EmbeddingProvider {
 
     try {
       const embeddings: number[][] = [];
-      for (let offset = 0; offset < texts.length; offset += 16) {
-        const batch = texts.slice(offset, offset + 16);
+      for (let offset = 0; offset < outboundTexts.length; offset += 16) {
+        const batch = outboundTexts.slice(offset, offset + 16);
         const output = await this.hfClient.featureExtraction({
             model:
               this.config.get<string>('HF_EMBEDDING_MODEL') ??
@@ -60,7 +67,7 @@ export class EmbeddingProviderService implements EmbeddingProvider {
           ...vectors.map((vector) => this.normalizeVector(Array.from(vector))),
         );
       }
-      this.assertVectors(embeddings, texts.length);
+      this.assertVectors(embeddings, outboundTexts.length);
       return embeddings;
     } catch (error) {
       throw new ServiceUnavailableException(
